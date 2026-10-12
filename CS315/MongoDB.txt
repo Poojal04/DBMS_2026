@@ -1,0 +1,165 @@
+// List all tags that have been used in more than 1,000 posts
+db.tags.find(
+  { "Count": { "$gt": 1000 } },
+  { "TagName": 1, "_id": 0 }
+);
+
+// Show all comments that contain the word 'error'
+db.comments.find({ 
+  "Text": { "$regex": "error", "$options": "i" } 
+});
+
+// Find "Power Users" (users who have both posted and commented)
+post_users = db.posts.distinct("OwnerUserId")
+comm_users = db.comments.distinct("UserId")
+power_users = list(set(post_users).intersection(comm_users))
+
+// Find all unique active users (either posted OR commented)
+post_users = db.posts.distinct("OwnerUserId")
+comm_users = db.comments.distinct("UserId")
+active_users = list(set(post_users).union(comm_users))
+
+// Top 10 users with highest reputation living in New York
+db.users.find(
+  { "Location": { $regex: "New York", $options: "i" } },
+  { "DisplayName": 1, "Reputation": 1, "_id": 0 }
+).sort({ "Reputation": -1 }).limit(10);
+
+// Show all comments made by user 'JohnDoe' sorted by most recent
+db.comments.find(
+  { "UserDisplayName": "JohnDoe" }
+).sort({ "CreationDate": -1 });
+
+// Count number of different badge types awarded to a specific user
+db.Badges.aggregate([
+  { $match: { "UserId": 123 } },
+  { $group: { _id: "$Name" } },
+  { $count: "UniqueBadgeCount" }
+]);
+
+// Find users who have commented on their own posts more than 5 times
+db.Comments.aggregate([
+  {
+    $lookup: {
+      from: "Posts",
+      localField: "PostId",
+      foreignField: "Id",
+      as: "ParentPost"
+    }
+  },
+  { $unwind: "$ParentPost" },
+  { 
+    $match: { 
+      $expr: { $eq: ["$UserId", "$ParentPost.OwnerUserId"] } 
+    } 
+  },
+  {
+    $group: {
+      _id: "$UserId",
+      DisplayName: { $first: "$UserDisplayName" },
+      TotalSelfComments: { $sum: 1 }
+    }
+  },
+  { $match: { "TotalSelfComments": { $gt: 5 } } },
+  { $sort: { "TotalSelfComments": -1 } }
+]);
+
+// Find users whose answers were accepted by elite users (>10,000 reputation)
+db.posts.aggregate([
+  { 
+    $match: { 
+      "PostTypeId": 1, 
+      "AcceptedAnswerId": { $exists: true, $ne: null } 
+    } 
+  },
+  {
+    $lookup: {
+      from: "users",
+      localField: "OwnerUserId",
+      foreignField: "Id",
+      as: "AskerDetails"
+    }
+  },
+  { $unwind: "$AskerDetails" },
+  { $match: { "AskerDetails.Reputation": { $gt: 10000 } } },
+  {
+    $lookup: {
+      from: "posts",
+      localField: "AcceptedAnswerId",
+      foreignField: "Id",
+      as: "AnswerDetails"
+    }
+  },
+  { $unwind: "$AnswerDetails" },
+  {
+    $lookup: {
+      from: "users",
+      localField: "AnswerDetails.OwnerUserId",
+      foreignField: "Id",
+      as: "ExpertDetails"
+    }
+  },
+  { $unwind: "$ExpertDetails" },
+  {
+    $group: {
+      _id: "$ExpertDetails.Id",
+      ExpertName: { $first: "$ExpertDetails.DisplayName" },
+      Reputation: { $first: "$ExpertDetails.Reputation" },
+      EliteSolutionsProvided: { $sum: 1 },
+      HelpedTheseEliteUsers: { $addToSet: "$AskerDetails.DisplayName" }
+    }
+  },
+  { $sort: { "EliteSolutionsProvided": -1 } },
+  { $limit: 10 }
+]);
+
+// Find user having posts with highest number of comments (SQL)
+SELECT
+    u."DisplayName",
+    SUM(p."CommentCount") AS "TotalComments"
+FROM "Users" u
+JOIN "Posts" p ON u."Id" = p."OwnerUserId"
+GROUP BY u."Id", u."DisplayName"
+ORDER BY "TotalComments" DESC
+LIMIT 1;
+
+// Fetch a user’s profile with top 5 posts and 3 recent comments per post
+db.users.aggregate([
+  { "$match": { "Id": 123 } },
+  {
+    "$lookup": {
+      "from": "posts",
+      "let": { "uid": "$Id" },
+      "pipeline": [
+        {
+          "$match": {
+            "$expr": {
+              "$eq": ["$OwnerUserId", "$$uid"]
+            }
+          }
+        },
+        { "$sort": { "Score": -1 } },
+        { "$limit": 5 },
+        {
+          "$lookup": {
+            "from": "comments",
+            "let": { "pid": "$Id" },
+            "pipeline": [
+              {
+                "$match": {
+                  "$expr": {
+                    "$eq": ["$PostId", "$$pid"]
+                  }
+                }
+              },
+              { "$sort": { "CreationDate": -1 } },
+              { "$limit": 3 }
+            ],
+            "as": "RecentComments"
+          }
+        }
+      ],
+      "as": "TopPosts"
+    }
+  }
+]);

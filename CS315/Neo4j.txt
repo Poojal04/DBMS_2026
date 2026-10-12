@@ -1,0 +1,65 @@
+// List all tags that have been used in more than 1,000 posts
+MATCH (t:Tag)
+WHERE t.count > 1000
+RETURN t.tagName;
+
+// Show all comments that contain the word 'error'
+MATCH (c:Comment)
+WHERE c.Text =~ '(?i).*error.*'
+RETURN c;
+
+// Find "Power Users" (users who have both posted and commented)
+MATCH (u:User)
+WHERE (u)-[:POSTED]->() AND (u)-[:COMMENTED]->()
+RETURN u.id;
+
+// Find all unique active users (either posted OR commented)
+MATCH (u:User)-[r:AUTHORED|WROTE_COMMENT]->()
+WITH u, type(r) AS activityType
+RETURN u.DisplayName, 
+       collect(DISTINCT activityType) AS Roles
+LIMIT 100;
+
+// Top 10 users with highest reputation living in New York
+MATCH (u:User)
+WHERE u.Location =~ '(?i).*New York.*'
+RETURN u.DisplayName, u.Reputation
+ORDER BY u.Reputation DESC
+LIMIT 10;
+
+// Show all comments made by user 'JohnDoe' sorted by most recent
+MATCH (u:User {DisplayName: 'JohnDoe'})-[:WROTE_COMMENT]->(c:Comment)
+RETURN c
+ORDER BY c.CreationDate DESC;
+
+// Count number of different badge types awarded to a specific user
+MATCH (u:User {userId: 123})-[:EARNED]->(b:Badge)
+RETURN count(DISTINCT b.Name) AS UniqueBadgeCount;
+
+// Find users who have commented on their own posts more than 5 times
+MATCH (u:User)-[:AUTHORED]->(p:Post)<-[:COMMENT_ON]-(c:Comment)<-[:WROTE_COMMENT]-(u)
+WITH u, count(c) AS selfCommentCount
+WHERE selfCommentCount > 5
+RETURN u.DisplayName, selfCommentCount;
+
+// Print user having posts with highest number of comments
+MATCH (u:User)-[:AUTHORED]->(p:Post)
+WHERE p.CommentCount IS NOT NULL
+RETURN u.DisplayName, p.postId, p.CommentCount
+ORDER BY p.CommentCount DESC
+LIMIT 1;
+
+// Fetch a user’s profile with top 5 posts and 3 recent comments per post
+MATCH (u:User {DisplayName: 'JohnDoe'})
+WITH u
+MATCH (u)-[:AUTHORED]->(p:Post)
+WITH u, p ORDER BY p.Score DESC LIMIT 5
+CALL (p) {
+  MATCH (c:Comment)-[:COMMENT_ON]->(p)
+  RETURN c ORDER BY c.CreationDate DESC LIMIT 3
+}
+RETURN u.DisplayName AS ProfileName,
+       u.Reputation AS Reputation,
+       p.Title AS PostTitle,
+       p.Score AS PostScore,
+       collect(c.Text) AS RecentComments;

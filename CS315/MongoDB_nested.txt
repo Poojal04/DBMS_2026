@@ -1,0 +1,119 @@
+// List all tags that have been used in more than 1,000 posts
+db.tags.find(
+  { "Count": { "$gt": 1000 } },
+  { "TagName": 1, "_id": 0 }
+);
+
+// Show all comments that contain the word 'error'
+db.DeepNestedUsers.find({
+  "MyPosts.Comments.Text": { $regex: "error", $options: "i" }
+});
+
+// Find "Power Users" (users who have both posted and commented)
+db.DeepNestedUsers.find({
+  "MyPosts.0": { $exists: true },
+  "MyPosts.Comments.0": { $exists: true }
+});
+
+// Find all unique active users (either posted OR commented)
+db.DeepNestedUsers.find({
+  $or: [
+    { "MyPosts.0": { $exists: true } },
+    { "MyPosts.Comments.0": { $exists: true } }
+  ]
+}, { UserId: 1, _id: 0 });
+
+// Top 10 users with highest reputation living in New York
+db.DeepNestedUsers.find(
+  { "Location": { $regex: "New York", $options: "i" } },
+  { "DisplayName": 1, "Reputation": 1, "_id": 0 }
+)
+.sort({ "Reputation": -1 })
+.limit(10);
+
+// Show all comments made by user 'JohnDoe' sorted by most recent
+db.DeepNestedUsers.aggregate([
+  { $match: { DisplayName: "JohnDoe" } },
+  { $unwind: "$MyPosts" },
+  { $unwind: "$MyPosts.Comments" },
+  { $sort: { "MyPosts.Comments.CreationDate": -1 } }
+]);
+
+// Count number of different badge types awarded to a specific user
+db.Badges.aggregate([
+  { $match: { "UserId": 123 } },
+  { $group: { _id: "$Name" } },
+  { $count: "UniqueBadgeCount" }
+]);
+
+// Find users who have commented on their own posts more than 5 times
+db.DeepNestedUsers.aggregate([
+  { $unwind: "$MyPosts" },
+  { $unwind: "$MyPosts.Comments" },
+  {
+    $group: {
+      _id: "$UserId",
+      SelfCommentCount: { $sum: 1 }
+    }
+  },
+  {
+    $match: {
+      SelfCommentCount: { $gt: 5 }
+    }
+  },
+  {
+    $project: {
+      _id: 0,
+      UserId: "$_id",
+      SelfCommentCount: 1
+    }
+  }
+]);
+
+// Find users whose answers were accepted by elite users (>10,000 reputation)
+db.DeepNestedUsers.aggregate([
+  { $match: { Reputation: { $gt: 10000 } } },
+  { $unwind: "$MyPosts" },
+  { $match: { "MyPosts.AcceptedAnswerId": { $ne: null } } },
+  {
+    $lookup: {
+      from: "DeepNestedUsers",
+      let: { ansId: "$MyPosts.AcceptedAnswerId" },
+      pipeline: [
+        { $unwind: "$MyPosts" },
+        {
+          $match: {
+            $expr: { $eq: ["$MyPosts.Id", "$$ansId"] }
+          }
+        }
+      ],
+      as: "solver"
+    }
+  },
+  { $unwind: "$solver" },
+  { $group: { _id: "$solver.UserId" } }
+]);
+
+// Print user having posts with highest number of comments
+db.DeepNestedUsers.aggregate([
+  { $unwind: "$MyPosts" },
+  {
+    $project: {
+      UserId: 1,
+      PostId: "$MyPosts.Id",
+      CommentCount: { $size: "$MyPosts.Comments" }
+    }
+  },
+  { $sort: { CommentCount: -1 } },
+  { $limit: 1 }
+]);
+
+// Fetch a user’s profile with top 5 posts and their comments
+db.DeepNestedUsers.aggregate([
+  { $match: { UserId: 123 } },
+  {
+    $project: {
+      TopPosts: { $slice: ["$MyPosts", 5] }
+    }
+  }
+]);

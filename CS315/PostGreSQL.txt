@@ -1,0 +1,111 @@
+// List all tags that have been used in more than 1,000 posts
+SELECT "TagName"
+FROM "Tags"
+WHERE "Count" > 1000;
+
+// Show all comments that contain the word 'error'
+SELECT *
+FROM "Comments"
+WHERE "Text" ILIKE '%error%';
+
+// Find "Power Users" (users who have both posted and commented)
+SELECT "OwnerUserId" FROM "Posts"
+INTERSECT
+SELECT "UserId" FROM "Comments";
+
+// Find all unique active users (either posted OR commented)
+SELECT "OwnerUserId" FROM "Posts"
+UNION
+SELECT "UserId" FROM "Comments";
+
+// Top 10 users with highest reputation living in New York
+SELECT "DisplayName", "Reputation"
+FROM "Users"
+WHERE "Location" ILIKE '%New York%'
+ORDER BY "Reputation" DESC
+LIMIT 10;
+
+// Show all comments made by user 'JohnDoe' sorted by most recent
+SELECT *
+FROM "Comments"
+WHERE "UserDisplayName" = 'JohnDoe'
+ORDER BY "CreationDate" DESC;
+
+// Count number of different badge types awarded to a specific user
+SELECT COUNT(DISTINCT "Name") AS "UniqueBadgeCount"
+FROM "Badges"
+WHERE "UserId" = 123;
+
+// Find users who have commented on their own posts more than 5 times
+SELECT
+    p."OwnerUserId",
+    u."DisplayName",
+    COUNT(*) as "SelfCommentCount"
+FROM "Posts" p
+JOIN "Comments" c 
+  ON p."Id" = c."PostId" 
+ AND p."OwnerUserId" = c."UserId"
+JOIN "Users" u 
+  ON p."OwnerUserId" = u."Id"
+GROUP BY p."OwnerUserId", u."DisplayName"
+HAVING COUNT(*) > 5
+ORDER BY "SelfCommentCount" DESC;
+
+// Find users whose answers were accepted by elite users (>10,000 reputation)
+SELECT DISTINCT
+    a_user."DisplayName" AS "HelperName",
+    a_user."Reputation" AS "HelperReputation"
+FROM "Posts" q
+JOIN "Posts" a ON q."AcceptedAnswerId" = a."Id"
+JOIN "Users" q_user ON q."OwnerUserId" = q_user."Id"
+JOIN "Users" a_user ON a."OwnerUserId" = a_user."Id"
+WHERE q_user."Reputation" > 10000
+  AND q."PostTypeId" = 1
+  AND a."PostTypeId" = 2;
+
+// Print user having posts with highest number of comments
+SELECT
+    u."DisplayName",
+    SUM(p."CommentCount") AS "TotalComments"
+FROM "Users" u
+JOIN "Posts" p ON u."Id" = p."OwnerUserId"
+GROUP BY u."Id", u."DisplayName"
+ORDER BY "TotalComments" DESC
+LIMIT 1;
+
+// Fetch a user’s profile with top 5 posts and 3 recent comments per post
+WITH "TopPosts" AS (
+    SELECT "Id", "Title", "Score", "CreationDate", "OwnerUserId"
+    FROM "Posts"
+    WHERE "OwnerUserId" = (
+        SELECT "Id" FROM "Users"
+        WHERE "DisplayName" = 'JohnDoe'
+        LIMIT 1
+    )
+    ORDER BY "Score" DESC
+    LIMIT 5
+),
+"RankedComments" AS (
+    SELECT
+        c."PostId",
+        c."Text",
+        c."CreationDate",
+        ROW_NUMBER() OVER (
+            PARTITION BY c."PostId" 
+            ORDER BY c."CreationDate" DESC
+        ) as "comment_rank"
+    FROM "Comments" c
+    JOIN "TopPosts" tp ON c."PostId" = tp."Id"
+)
+SELECT
+    u."DisplayName",
+    u."Reputation",
+    tp."Title" AS "PostTitle",
+    rc."Text" AS "CommentText"
+FROM "Users" u
+JOIN "TopPosts" tp ON u."Id" = tp."OwnerUserId"
+LEFT JOIN "RankedComments" rc 
+  ON tp."Id" = rc."PostId" 
+ AND rc."comment_rank" <= 3
+WHERE u."Id" = tp."OwnerUserId"
+ORDER BY tp."Score" DESC, rc."CreationDate" DESC;
